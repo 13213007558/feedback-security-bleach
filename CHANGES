@@ -1,6 +1,21 @@
 Bleach changes
 ==============
 
+Unreleased
+----------
+
+**New features**
+
+* Add the optional ``allowed_url_protocols`` argument to
+  ``bleach.css_sanitizer.CSSSanitizer``. When set, URL values in allowed
+  declarations are checked against the parsed tinycss2 token tree: only the
+  configured protocols and in-page ``#fragment`` URLs are allowed. Relative
+  paths and protocol-relative (``//host``) URLs are rejected because there
+  is no trusted base URL. Declarations containing a disallowed URL, a parse
+  error, an unparseable ``url()`` argument or ``var()``/``env()`` are
+  dropped wholesale. The default (``allowed_url_protocols=None``) preserves
+  the previous behavior.
+
 Version 6.4.0 (June 5th, 2026)
 ------------------------------
 

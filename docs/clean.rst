@@ -330,6 +330,61 @@ For example:
 Defaults are stored in ``bleach.css_sanitizer.ALLOWED_CSS_PROPERTIES`` and
 ``bleach.css_sanitizer.ALLOWED_SVG_PROPERTIES``.
 
+Restricting URL protocols
+-------------------------
+
+Pass ``allowed_url_protocols`` to additionally constrain every URL in an
+allowed declaration. The policy is evaluated against the tinycss2 token tree
+(after CSS escape resolution), not the raw source text. HTTPS URLs and
+in-page fragments are kept; relative paths, protocol-relative (``//host``)
+URLs and any other protocol are dropped together with the whole declaration,
+because there is no trusted base URL to resolve them against.
+
+.. doctest::
+
+   >>> from bleach.css_sanitizer import CSSSanitizer
+
+   >>> css_sanitizer = CSSSanitizer(
+   ...     allowed_css_properties=["background", "color"],
+   ...     allowed_url_protocols=["https"],
+   ... )
+
+   >>> # HTTPS image: kept
+   >>> css_sanitizer.sanitize_css(
+   ...     'background: url("https://example.com/pic.png")'
+   ... )
+   'background: url("https://example.com/pic.png");'
+
+   >>> # In-page fragment: kept
+   >>> css_sanitizer.sanitize_css("background: url(#logo)")
+   'background: url(#logo);'
+
+   >>> # Relative path with no base URL: whole declaration dropped
+   >>> css_sanitizer.sanitize_css("background: url(pic.png)")
+   ''
+
+   >>> # Protocol-relative URL: whole declaration dropped
+   >>> css_sanitizer.sanitize_css("background: url(//example.com/pic.png)")
+   ''
+
+   >>> # Escaped protocol is resolved before checking: whole declaration dropped
+   >>> css_sanitizer.sanitize_css(r'background: url(java\73 cript:alert)')
+   ''
+
+   >>> # Mixed declarations: only the offending declaration is dropped
+   >>> css_sanitizer.sanitize_css(
+   ...     'color: red; background: url(//example.com/pic.png); color: blue'
+   ... )
+   'color: red; color: blue;'
+
+The check also covers string image sources in ``image-set()``/``image()``
+and URLs nested inside other functions. Declarations containing bad tokens,
+unparseable ``url()`` arguments or ``var()``/``env()`` substitutions are
+dropped as well, while strings that are not image sources (such as
+``font-family`` or ``content`` values) are left untouched. When
+``allowed_url_protocols`` is omitted, URL values are not checked and the
+previous behavior is preserved.
+
 .. Note::
 
    This silently drops ParseError and AtRule tokens in CSS parsing. If you need
