@@ -368,6 +368,20 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
             self.sanitize_stream(html5lib_shim.Filter.__iter__(self))
         )
 
+    def _tag_is_allowed(self, token):
+        """Whether the token's tag is in the allowlist.
+
+        The html5lib treewalker applies the SVG tag-name adjustments from the
+        HTML spec, so foreign-content tokens use camelCase names (for example
+        ``foreignObject`` or ``linearGradient``) even when the source was
+        lowercase. Allowlist entries are normalized to lowercase in the
+        parser, so compare case-insensitively to keep lowercase allowlists
+        working for those elements; HTML and MathML local names are already
+        lowercase and are unaffected.
+        """
+        name = token["name"]
+        return name in self.allowed_tags or name.lower() in self.allowed_tags
+
     def sanitize_token(self, token):
         """Sanitize a token either by HTML-encoding or dropping.
 
@@ -386,7 +400,7 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
         """
         token_type = token["type"]
         if token_type in ["StartTag", "EndTag", "EmptyTag"]:
-            if token["name"] in self.allowed_tags:
+            if self._tag_is_allowed(token):
                 return self.allow_token(token)
 
             elif self.strip_disallowed_tags:
