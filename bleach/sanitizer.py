@@ -54,6 +54,45 @@ class NoCssSanitizerWarning(UserWarning):
     pass
 
 
+#: Marker attribute set on attributes callables that take parser-resolved
+#: namespace information
+_NAMESPACED_POLICY_MARKER = "_bleach_namespaced_attribute_policy"
+
+
+def namespaced_attribute_policy(func):
+    """Marks an attributes callable as a namespace-aware policy
+
+    A namespace-aware policy is called with the tag, the tag's namespace, the
+    attribute name, the attribute's namespace and the attribute value::
+
+        def policy(tag, tag_namespace, name, attr_namespace, value):
+            ...
+
+    Namespaces come from the HTML parser--not from looking for ":" in the
+    source text. For HTML elements and attributes that aren't in a namespace,
+    the respective namespace is ``None``. For foreign content (SVG, MathML),
+    the parser adjusts names and assigns namespaces, so ``xlink:href`` shows
+    up as name ``href`` in the ``http://www.w3.org/1999/xlink`` namespace.
+
+    Returning ``True`` keeps the attribute as a candidate--the built-in URI
+    protocol, SVG local reference and CSS checks still run afterwards.
+
+    """
+    setattr(func, _NAMESPACED_POLICY_MARKER, True)
+    return func
+
+
+def _is_namespaced_policy(func):
+    return getattr(func, _NAMESPACED_POLICY_MARKER, False)
+
+
+def _call_attribute_callable(func, tag, tag_namespace, name, attr_namespace, value):
+    """Calls an attributes callable with the signature it supports"""
+    if _is_namespaced_policy(func):
+        return func(tag, tag_namespace, name, attr_namespace, value)
+    return func(tag, name, value)
+
+
 class Cleaner:
     """Cleaner for cleaning HTML fragments of malicious content
 
@@ -100,6 +139,10 @@ class Cleaner:
 
         :arg dict attributes: allowed attributes; can be a callable, list or dict;
             defaults to ``bleach.sanitizer.ALLOWED_ATTRIBUTES``
+
+            Callables take ``(tag, name, value)`` unless marked with
+            ``bleach.sanitizer.namespaced_attribute_policy`` in which case they
+            take ``(tag, tag_namespace, name, attr_namespace, value)``
 
         :arg set protocols: set of allowed protocols for links; defaults
             to ``bleach.sanitizer.ALLOWED_PROTOCOLS``
@@ -213,27 +256,43 @@ def attribute_filter_factory(attributes):
     function appropriate to the attributes value. One nice thing about this is
     that there's less if/then shenanigans in the ``allow_token`` method.
 
+    The returned filter takes the tag, the tag namespace, the attribute name,
+    the attribute namespace and the attribute value. Callables provided by the
+    user either take ``(tag, name, value)`` or--if marked with
+    :func:`namespaced_attribute_policy`--``(tag, tag_namespace, name,
+    attr_namespace, value)``.
+
     """
     if callable(attributes):
-        return attributes
+
+        def _callable_attr_filter(tag, tag_namespace, name, attr_namespace, value):
+            return _call_attribute_callable(
+                attributes, tag, tag_namespace, name, attr_namespace, value
+            )
+
+        return _callable_attr_filter
 
     if isinstance(attributes, dict):
 
-        def _attr_filter(tag, attr, value):
+        def _attr_filter(tag, tag_namespace, name, attr_namespace, value):
             if tag in attributes:
                 attr_val = attributes[tag]
                 if callable(attr_val):
-                    return attr_val(tag, attr, value)
+                    return _call_attribute_callable(
+                        attr_val, tag, tag_namespace, name, attr_namespace, value
+                    )
 
-                if attr in attr_val:
+                if name in attr_val:
                     return True
 
             if "*" in attributes:
                 attr_val = attributes["*"]
                 if callable(attr_val):
-                    return attr_val(tag, attr, value)
+                    return _call_attribute_callable(
+                        attr_val, tag, tag_namespace, name, attr_namespace, value
+                    )
 
-                return attr in attr_val
+                return name in attr_val
 
             return False
 
@@ -241,8 +300,8 @@ def attribute_filter_factory(attributes):
 
     if isinstance(attributes, list):
 
-        def _attr_filter(tag, attr, value):
-            return attr in attributes
+        def _attr_filter(tag, tag_namespace, name, attr_namespace, value):
+            return name in attributes
 
         return _attr_filter
 
@@ -278,6 +337,10 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
 
         :arg dict attributes: allowed attributes; can be a callable, list or dict;
             defaults to ``bleach.sanitizer.ALLOWED_ATTRIBUTES``
+
+            Callables take ``(tag, name, value)`` unless marked with
+            ``bleach.sanitizer.namespaced_attribute_policy`` in which case they
+            take ``(tag, tag_namespace, name, attr_namespace, value)``
 
         :arg set allowed_protocols: set of allowed protocols for links; defaults
             to ``bleach.sanitizer.ALLOWED_PROTOCOLS``
@@ -546,9 +609,11 @@ class BleachSanitizerFilter(html5lib_shim.SanitizerFilter):
 
                 # Drop attributes that are not explicitly allowed
                 #
-                # NOTE(willkg): We pass in the attribute name--not a namespaced
-                # name.
-                if not self.attr_filter(token["name"], name, val):
+                # NOTE(willkg): For callables that aren't namespace-aware, we
+                # pass in the attribute name--not a namespaced name.
+                if not self.attr_filter(
+                    token["name"], token.get("namespace"), name, namespace, val
+                ):
                     continue
 
                 # Drop attributes with uri values that use a disallowed protocol

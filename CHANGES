@@ -1,6 +1,25 @@
 Bleach changes
 ==============
 
+Version 6.5.0 (in development)
+------------------------------
+
+**Features**
+
+* Add ``bleach.sanitizer.namespaced_attribute_policy`` decorator marking an
+  ``attributes`` callable as namespace-aware.
+
+  Namespace-aware policies are called with the tag, the tag's namespace, the
+  attribute name, the attribute's namespace and the attribute value, using
+  namespaces resolved by the HTML parser. This makes it possible to treat
+  same-named attributes differently, e.g. keeping ``xlink:href`` in SVG but
+  not a plain ``href``. Attributes allowed by a policy still go through the
+  built-in URI protocol, SVG local reference and CSS checks.
+
+  Existing three-argument callables taking ``(tag, name, value)`` continue to
+  work unchanged.
+
+
 Version 6.4.0 (June 5th, 2026)
 ------------------------------
 

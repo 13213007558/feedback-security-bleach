@@ -203,6 +203,56 @@ attributes for specified tags:
    value.
 
 
+As a namespace-aware policy
+---------------------------
+
+.. versionadded:: 6.5
+
+Three-argument callables can't distinguish a plain ``href`` from a namespaced
+one like ``xlink:href``. If you need to decide based on the element and
+attribute namespaces, decorate a callable with
+``bleach.sanitizer.namespaced_attribute_policy``. It then gets called with the
+tag, the tag's namespace, the attribute name, the attribute's namespace and
+the attribute value.
+
+Namespaces come from the HTML parser, not from looking for ``:`` in the
+source. HTML elements and attributes that aren't in a namespace have a
+namespace of ``None``. In foreign content (SVG, MathML), the parser adjusts
+names and assigns namespaces, so ``xlink:href`` shows up as name ``href`` in
+the ``http://www.w3.org/1999/xlink`` namespace.
+
+For example, this keeps ``href`` on HTML "a" tags, but only ``xlink:href`` on
+SVG elements--same attribute name, different decisions:
+
+.. doctest::
+
+   >>> import bleach
+   >>> from bleach.sanitizer import namespaced_attribute_policy
+
+   >>> @namespaced_attribute_policy
+   ... def href_policy(tag, tag_ns, name, attr_ns, value):
+   ...     if name != 'href':
+   ...         return False
+   ...     if tag_ns == 'http://www.w3.org/2000/svg':
+   ...         # In SVG, only keep xlink:href
+   ...         return attr_ns == 'http://www.w3.org/1999/xlink'
+   ...     # Elsewhere, only keep plain href
+   ...     return attr_ns is None
+
+   >>> bleach.clean(
+   ...     '<a href="https://example.com/">html</a>'
+   ...     '<svg><a href="#plain" xlink:href="#local">svg</a></svg>',
+   ...     tags={'a', 'svg'},
+   ...     attributes=href_policy,
+   ... )
+   '<a href="https://example.com/">html</a><svg><a href="#local">svg</a></svg>'
+
+
+Allowing an attribute in a policy doesn't exempt it from the built-in checks:
+URI protocol restrictions, SVG local reference requirements and CSS
+sanitization still apply.
+
+
 Allowed protocols (``protocols``)
 =================================
 

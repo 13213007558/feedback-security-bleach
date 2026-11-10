@@ -3,8 +3,14 @@ import os
 import pytest
 
 from bleach import clean
+from bleach.css_sanitizer import CSSSanitizer
 from bleach.html5lib_shim import Filter
-from bleach.sanitizer import ALLOWED_PROTOCOLS, Cleaner, NoCssSanitizerWarning
+from bleach.sanitizer import (
+    ALLOWED_PROTOCOLS,
+    Cleaner,
+    NoCssSanitizerWarning,
+    namespaced_attribute_policy,
+)
 from bleach._vendor.html5lib.constants import rcdataElements
 
 
@@ -520,6 +526,147 @@ def test_attributes_list():
 
     text = '<a href="/foo" title="blah">example</a>'
     assert clean(text, tags=TAGS, attributes=ATTRS) == '<a title="blah">example</a>'
+
+
+SVG_NS = "http://www.w3.org/2000/svg"
+XLINK_NS = "http://www.w3.org/1999/xlink"
+XML_NS = "http://www.w3.org/XML/1998/namespace"
+MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+
+
+def test_namespaced_policy_receives_parser_context():
+    """Verify namespace-aware policies get parser-resolved namespaces"""
+    seen = []
+
+    @namespaced_attribute_policy
+    def record(tag, tag_namespace, name, attr_namespace, value):
+        seen.append((tag, tag_namespace, name, attr_namespace, value))
+        return True
+
+    text = (
+        '<a href="https://example.com/">link</a>'
+        '<svg viewbox="0 0 10 10" xml:base="https://example.com/base/">'
+        '<a XLINK:HREF="#local">local</a>'
+        '<foreignobject><a href="#inner">inner</a></foreignobject>'
+        "</svg>"
+        '<math><mi xlink:href="#m">m</mi></math>'
+    )
+    tags = {"a", "svg", "foreignObject", "math", "mi"}
+
+    # The parser adjusts case for foreign content (viewbox -> viewBox,
+    # foreignobject -> foreignObject, XLINK:HREF -> xlink href) and the
+    # serializer drops namespace prefixes
+    assert clean(text, tags=tags, attributes=record) == (
+        '<a href="https://example.com/">link</a>'
+        '<svg viewBox="0 0 10 10" base="https://example.com/base/">'
+        '<a href="#local">local</a>'
+        '<foreignObject><a href="#inner">inner</a></foreignObject>'
+        "</svg>"
+        '<math><mi href="#m">m</mi></math>'
+    )
+
+    assert seen == [
+        # HTML elements and attributes have no namespace
+        ("a", None, "href", None, "https://example.com/"),
+        # viewbox is case-adjusted to viewBox by the parser
+        ("svg", SVG_NS, "viewBox", None, "0 0 10 10"),
+        # xml:base is in the xml namespace
+        ("svg", SVG_NS, "base", XML_NS, "https://example.com/base/"),
+        # XLINK:HREF is case-adjusted and namespaced by the parser
+        ("a", SVG_NS, "href", XLINK_NS, "#local"),
+        # HTML in foreignObject is back in no namespace
+        ("a", None, "href", None, "#inner"),
+        # MathML elements and xlink attributes carry their namespaces
+        ("mi", MATHML_NS, "href", XLINK_NS, "#m"),
+    ]
+
+
+def test_namespaced_policy_same_name_different_decisions():
+    """Verify policies can treat same-named attributes differently by namespace"""
+
+    @namespaced_attribute_policy
+    def href_policy(tag, tag_namespace, name, attr_namespace, value):
+        if name != "href":
+            return False
+        if tag_namespace == SVG_NS:
+            # In SVG, only keep xlink:href
+            return attr_namespace == XLINK_NS
+        # Elsewhere, only keep plain href
+        return attr_namespace is None
+
+    text = (
+        '<a href="https://example.com/" xlink:href="#no">html</a>'
+        '<svg><a href="#plain" xlink:href="#ns">svg</a></svg>'
+    )
+    assert clean(text, tags={"a", "svg"}, attributes=href_policy) == (
+        '<a href="https://example.com/">html</a>'
+        '<svg><a href="#ns">svg</a></svg>'
+    )
+
+
+def test_namespaced_policy_as_dict_value():
+    """Verify namespace-aware policies work as attributes dict values"""
+
+    @namespaced_attribute_policy
+    def only_plain_href(tag, tag_namespace, name, attr_namespace, value):
+        return name == "href" and attr_namespace is None
+
+    text = '<a href="#a" xlink:href="#b">x</a>'
+    assert (
+        clean(text, tags={"a"}, attributes={"a": only_plain_href})
+        == '<a href="#a">x</a>'
+    )
+
+
+def test_namespaced_policy_does_not_bypass_builtin_checks():
+    """Verify built-in checks still run for attributes a policy allows"""
+
+    @namespaced_attribute_policy
+    def allow_all(tag, tag_namespace, name, attr_namespace, value):
+        return True
+
+    # URI protocol check still applies
+    assert (
+        clean('<a href="javascript:alert(1)">x</a>', tags={"a"}, attributes=allow_all)
+        == "<a>x</a>"
+    )
+
+    # SVG local href check still applies and local references are kept
+    text = (
+        '<svg><pattern xlink:href="https://example.com/p"></pattern>'
+        '<pattern xlink:href="#p"></pattern></svg>'
+    )
+    assert clean(text, tags={"svg", "pattern"}, attributes=allow_all) == (
+        '<svg><pattern></pattern><pattern href="#p"></pattern></svg>'
+    )
+
+    # CSS sanitization still applies
+    css_sanitizer = CSSSanitizer()
+    assert (
+        clean(
+            '<p style="color: red; not-a-real-prop: 1">x</p>',
+            tags={"p"},
+            attributes=allow_all,
+            css_sanitizer=css_sanitizer,
+        )
+        == '<p style="color: red;">x</p>'
+    )
+
+
+def test_attributes_callable_namespaced_attr_gets_local_name():
+    """Verify old-style callables still get the local attribute name"""
+    seen = []
+
+    def old_style(tag, name, value):
+        seen.append((tag, name, value))
+        return True
+
+    text = '<svg><a xlink:href="#x">y</a></svg>'
+    assert (
+        clean(text, tags={"svg", "a"}, attributes=old_style)
+        == '<svg><a href="#x">y</a></svg>'
+    )
+    assert seen == [("a", "href", "#x")]
 
 
 @pytest.mark.parametrize(
