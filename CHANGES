@@ -1,6 +1,19 @@
 Bleach changes
 ==============
 
+Unreleased
+----------
+
+**New features**
+
+* Add ``bleach.clean_linkify`` and ``bleach.clean_linkifier.CleanLinker``, a
+  single entry point that cleans a fragment, linkifies it and then runs a
+  final clean pass over the linkify callback output. The closing pass
+  re-applies the tag/attribute allow-list and protocol policy, so callbacks
+  that change ``href``, ``target`` or the link text cannot introduce a
+  disallowed protocol or attribute. A callback returning ``None`` restores
+  the link text without it being linkified again.
+
 Version 6.4.0 (June 5th, 2026)
 ------------------------------
 

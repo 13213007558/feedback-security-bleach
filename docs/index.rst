@@ -9,6 +9,7 @@ Contents
 
    clean
    linkify
+   clean_linkify
    goals
    dev
    changes

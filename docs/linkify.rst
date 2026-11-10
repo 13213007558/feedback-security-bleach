@@ -21,6 +21,11 @@ having URLs in tag attributes getting linkified.
    in a single pass using :ref:`LinkifyFilter <linkify-LinkifyFilter>`. This
    is faster and it'll use the list of allowed tags from clean.
 
+   For text that must be cleaned *and* linkified while still guaranteeing the
+   final output is safe even when the callbacks rewrite attributes, use
+   :py:func:`bleach.clean_linkify` instead. It adds an explicit clean pass
+   after the callbacks. See :ref:`clean-linkify-chapter`.
+
 .. note::
 
    You may pass a ``string`` or ``unicode`` object, but Bleach will always
