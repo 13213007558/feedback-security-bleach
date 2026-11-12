@@ -358,6 +358,47 @@ should create a :py:class:`bleach.sanitizer.Cleaner` instance.
 .. versionadded:: 2.0
 
 
+Sharing configuration across threads with ``bleach.pool.CleanerPool``
+=====================================================================
+
+:py:class:`bleach.sanitizer.Cleaner` is **not thread-safe**: the html5lib
+parser keeps mutable tokenizer and tree state on the cleaner for its whole
+lifetime.  A service that wants to reuse one configuration across requests
+therefore typically builds a new ``Cleaner`` per request, which repeats the
+parser and serializer setup on every call.
+
+:py:class:`bleach.pool.CleanerPool` keeps a bounded pool of stateful
+``Cleaner`` workers behind one thread-safe entry point.  The configuration is
+frozen--copied into immutable containers--once, when the pool is constructed.
+Each :py:meth:`~bleach.pool.CleanerPool.clean` call checks out a worker for its
+exclusive use, so the tokenizer and tree of one request are never shared with
+another thread or with a re-entrant call made from inside an attribute
+callback.  A worker whose cleaning raises is discarded rather than recycled, so
+a later call can never see residue from a failed document.
+
+.. doctest::
+
+   >>> from bleach.pool import CleanerPool
+   >>> pool = CleanerPool(tags={'p', 'a'}, attributes={'a': ['href']})
+   >>> pool.clean('<p>hi</p><script>bad()</script>')
+   '<p>hi</p>&lt;script&gt;bad()&lt;/script&gt;'
+
+Mutating the lists, sets or dicts passed to the constructor after the pool
+exists has no effect--the snapshot was taken at construction time.  Build a new
+pool to change configuration.
+
+.. autoclass:: bleach.pool.CleanerPool
+   :members:
+
+A local benchmark lives at ``scripts/benchmark_pool.py``.  On request-sized
+fragments it shows ``CleanerPool.clean`` at roughly three quarters of the cost
+of building a fresh ``Cleaner`` per request, because the per-request parser
+setup is paid only when the pool grows; the difference is negligible for very
+large documents where parsing dominates.
+
+.. versionadded:: 6.4.0
+
+
 html5lib Filters (``filters``)
 ------------------------------
 

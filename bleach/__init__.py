@@ -2,6 +2,7 @@ from bleach.linkifier import (
     DEFAULT_CALLBACKS,
     Linker,
 )
+from bleach.pool import CleanerPool
 from bleach.sanitizer import (
     ALLOWED_ATTRIBUTES,
     ALLOWED_PROTOCOLS,

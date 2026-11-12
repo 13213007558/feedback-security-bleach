@@ -1,6 +1,22 @@
 Bleach changes
 ==============
 
+Unreleased
+----------
+
+**New features**
+
+* Add ``bleach.pool.CleanerPool``: a bounded, thread-safe pool of
+  ``Cleaner`` workers for services that want to reuse one configuration
+  across requests without building a new ``Cleaner`` per request.
+
+  Configuration is frozen at pool construction, each ``clean`` call gets
+  exclusive use of a parser/tokenizer/tree, re-entrant calls from inside
+  attribute callbacks run on throwaway workers, and a worker whose cleaning
+  raises is discarded so failed-document state can never reach a later call.
+  The existing ``Cleaner`` thread-safety contract is unchanged.
+
+
 Version 6.4.0 (June 5th, 2026)
 ------------------------------
 
